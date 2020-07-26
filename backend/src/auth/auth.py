@@ -32,18 +32,35 @@ class AuthError(Exception):
 '''
 def get_token_auth_header():
     #request token
-   token = request.headers.get('Authorization',None)
-   if token is None: 
-        raise AuthError({'description': 'No token',},401)
-   deconstruct = token.split('Bearer')
-   print(deconstruct)
-   no_bearer = deconstruct[1]
-   full_jwt = no_bearer.split('.')
-   print(full_jwt)
-   if len(full_jwt)<3: 
-       raise AuthError({'description':'invalid token'}, 401)
-   head = full_jwt[0]
-   return head
+    auth = request.headers.get('Authorization', None)
+    if not auth:
+        raise AuthError({
+            'code': 'authorization_header_missing',
+            'description': 'Authorization header is expected.'
+        }, 401)
+
+    parts = auth.split()
+
+    if parts[0].lower() != 'bearer':
+        raise AuthError({
+            'code': 'invalid_header',
+            'description': 'Authorization header must start with "Bearer".'
+        }, 401)
+
+    elif len(parts) == 1:
+        raise AuthError({
+            'code': 'invalid_header',
+            'description': 'Token not found.'
+        }, 401)
+
+    elif len(parts) > 2:
+        raise AuthError({
+            'code': 'invalid_header',
+            'description': 'Authorization header must be bearer token.'
+        }, 401)
+
+    token = parts[1]
+    return token
 
 '''
 @TODO implement check_permissions(permission, payload) method
@@ -88,43 +105,64 @@ def check_permissions(permission, payload):
 
 # decodes with verification code from auth0 documentation 
 def verify_decode_jwt(token):
-
-    jsonurl = urlopen("https://"+AUTH0_DOMAIN+"/.well-known/jwks.json")
+    # GET THE PUBLIC KEY FROM AUTH0
+    jsonurl = urlopen(f'https://{AUTH0_DOMAIN}/.well-known/jwks.json')
     jwks = json.loads(jsonurl.read())
+    # GET THE DATA IN THE HEADER
     unverified_header = jwt.get_unverified_header(token)
+    # CHOOSE OUR KEY
     rsa_key = {}
-    for key in jwks["keys"]:
-        if key["kid"] == unverified_header["kid"]:
+    # check it is an Auth0 token with key id (kid)
+    if 'kid' not in unverified_header:
+        raise AuthError({
+            'code': 'invalid_header',
+            'description': 'Authorization malformed.'
+        }, 401)
+    for key in jwks['keys']:
+        # verify the token using Auth0 /.well-known/jwks.json
+        if key['kid'] == unverified_header['kid']:
+            # decode the payload from the token
             rsa_key = {
-                "kty": key["kty"],
-                "kid": key["kid"],
-                "use": key["use"],
-                "n": key["n"],
-                "e": key["e"]
+                'kty': key['kty'],
+                'kid': key['kid'],
+                'use': key['use'],
+                'n': key['n'],
+                'e': key['e']
             }
+    # Finally, verify!!!
     if rsa_key:
+        # validate the claims
         try:
+            # USE THE KEY TO VALIDATE THE JWT
             payload = jwt.decode(
                 token,
                 rsa_key,
                 algorithms=ALGORITHMS,
                 audience=API_AUDIENCE,
-                issuer="https://"+AUTH0_DOMAIN+"/"
+                issuer='https://' + AUTH0_DOMAIN + '/'
             )
+            # return the decoded payload
             return payload
         except jwt.ExpiredSignatureError:
-            raise AuthError({"code": "token_expired",
-                            "description": "token is expired"}, 401)
+            raise AuthError({
+                'code': 'token_expired',
+                'description': 'Token is expired.'
+            }, 401)
         except jwt.JWTClaimsError:
-            raise AuthError({"code": "invalid_claims",
-                            "description":
-                                "incorrect claims,"
-                                "please check the audience and issuer"}, 401)
+            raise AuthError({
+                'code': 'invalid_claims',
+                'description': 'Incorrect claims. Please, check the audience and issuer.'
+            }, 401)
         except Exception:
-            raise AuthError({"code": "invalid_header",
-                            "description":
-                                "Unable to parse authentication"
-                                " token."}, 401)
+            raise AuthError({
+                'code': 'invalid_header',
+                'description': 'Unable to parse authentication token.'
+            }, 400)
+    raise AuthError({
+                'code': 'invalid_header',
+                'description': 'Unable to find the appropriate key.'
+            }, 400)
+
 
 
 '''

@@ -55,6 +55,7 @@ class Drink(db.Model):
             'recipe': short_recipe
         }
 
+
     '''
     long()
         long form representation of the Drink model
