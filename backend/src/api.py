@@ -20,12 +20,13 @@ def after_request(response):
     header['Access-Control-Allow-Methods'] = 'POST,GET,PUT,DELETE,PATCH,OPTIONS'
     return response
 
+
 # db_drop_and_create_all()
 
 
 
 
-@app.route("/drinks", methods=['GET'])
+@app.route("/drinks")
 def get_drinks(): 
     try:
         drinks = list(map(Drink.short, Drink.query.all()))
@@ -74,22 +75,24 @@ def get_drinks_details(jwt):
 @app.route('/drinks',methods=['POST'])
 @requires_auth("post:drinks")
 def add_drink(jwt): 
+    try:
+        body = request.get_json() 
+        if body.get('title') is None:
+            abort(400)
 
-    body = request.get_json() 
-    if body.get('title') is None:
+        drink = Drink(
+            title=body.get('title'),
+            recipe=json.dumps(body.get('recipe'))
+            )
+        drink.insert()
+        new_drink = Drink.query.filter_by(id=drink.id).first()
+
+        return jsonify({
+            "success":True, 
+            "drinks":[new_drink.long()],
+        }),201
+    except: 
         abort(400)
-
-    drink = Drink(
-        title=body.get('title'),
-        recipe=json.dumps(body.get('recipe'))
-        )
-    drink.insert()
-    new_drink = Drink.query.filter_by(id=drink.id).first()
-
-    return jsonify({
-        "success":True, 
-        "drinks":[new_drink.long()],
-    }),201
 
 
 
@@ -136,6 +139,8 @@ def edit_drink(jwt,id):
 def delete_drink(jwt,id):
     try: 
         drink = Drink.query.filter(Drink.id == id).one()
+        if not drink: 
+            abort(404)
         drink.delete()
         return jsonify({
             'success':True,
@@ -176,12 +181,12 @@ def not_found(error):
                     "message": "Not Found"
                     },404)
 
-@app.errorhandler(401)
+@app.errorhandler(AuthError)
 def auth_error(error):
     return jsonify({
-                    "success": False, 
-                    "error": 401,
-                    "message": "Authorization error "
-                    },401)
+        "success": False,
+        "error": error.status_code,
+        "message": error.error['description']
+    }), error.status_code
 
 
